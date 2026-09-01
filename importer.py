@@ -1,7 +1,6 @@
 import bpy
-from bpy.types import Context, Object
+from bpy.types import Context
 
-import numpy as np
 import numpy.typing as npt
 
 from . import reader
@@ -11,11 +10,8 @@ def fan_positions_to_triangles(
     positions: npt.NDArray, start_idx: int
 ) -> list[tuple[int, int, int]]:
     triangles: list[tuple[int, int, int]] = []
-    a = positions[0]
     for i in range(1, len(positions) - 1):
-        b = positions[i]
-        c = positions[i + 1]
-        triangles.append((0, start_idx + i, start_idx + i + 1))
+        triangles.append((start_idx, start_idx + i, start_idx + i + 1))
     return triangles
 
 
@@ -49,9 +45,11 @@ def import_scene(context: Context, actor: reader.Actor) -> None:
 
     # Convert primitives to triangles
     triangles: list[tuple[int, int, int]] = []
+    poly_group_lengths: list[int] = []
     start_vert = 0
-    for prim_group in actor.prim_groups:
-        for prim in prim_group:
+    for prim_batch in actor.prim_batches:
+        tri_start_len = len(triangles)
+        for prim in prim_batch.primitives:
             prim_positions = actor.vertices["position"][
                 start_vert : start_vert + prim.vertex_count
             ]
@@ -84,6 +82,7 @@ def import_scene(context: Context, actor: reader.Actor) -> None:
                     f"Unimplemented primitive type {prim.prim_type}"
                 )
             start_vert += prim.vertex_count
+        poly_group_lengths.append(len(triangles) - tri_start_len)
 
     # Import geometry
     print(actor.vertices.dtype)
@@ -93,6 +92,19 @@ def import_scene(context: Context, actor: reader.Actor) -> None:
         [],
         triangles,
     )
+
+    # Create and assign materials
+    start_poly = 0
+    mat_names: list[str] = []
+    for prim_batch, poly_group_len in zip(actor.prim_batches, poly_group_lengths):
+        mat_name = str(prim_batch.tex_0_crc)
+        if mat_name not in mat_names:
+            mesh.materials.append(bpy.data.materials.new(mat_name))
+            mat_names.append(mat_name)
+        for i in range(poly_group_len):
+            mesh.polygons[start_poly + i].material_index = mat_names.index(mat_name)
+        start_poly += poly_group_len
+
     mesh.validate()
     mesh.update()
 

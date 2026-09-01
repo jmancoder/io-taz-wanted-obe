@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 from io import BufferedReader
 from typing import NamedTuple
 
@@ -39,11 +40,13 @@ class SkinPrim(NamedTuple):
     draw_count: int
 
 
-class PrimBatch(NamedTuple):
+@dataclass
+class PrimBatch:
     prim_count: int
     tex_0_crc: int
     tex_1_crc: int
     flags: int
+    primitives: list[SkinPrim]
 
 
 class Node(NamedTuple):
@@ -55,7 +58,6 @@ class Node(NamedTuple):
 class Actor(NamedTuple):
     vertices: npt.NDArray
     prim_batches: list[PrimBatch]
-    prim_groups: list[list[SkinPrim]]
     nodes: list[Node]
 
 
@@ -101,7 +103,7 @@ def read_prim_batch(bs: BinaryReader) -> PrimBatch:
     tex_0_crc = bs.read_uint32()
     tex_1_crc = bs.read_uint32()
     flags = bs.read_uint32()
-    return PrimBatch(prim_count, tex_0_crc, tex_1_crc, flags)
+    return PrimBatch(prim_count, tex_0_crc, tex_1_crc, flags, [])
 
 
 def fvf_to_dtype(fvf: int) -> npt.DTypeLike:
@@ -167,15 +169,14 @@ def read_actor(f: BufferedReader) -> Actor:
     # Read primitive batches
     bs.seek(prim_batch_off)
     prim_batches = [read_prim_batch(bs) for _ in range(prim_batch_count)]
-
-    # Read primitives grouped by batch
     bs.seek(prim_off)
-    prim_groups: list[list[SkinPrim]] = []
     for prim_batch in prim_batches:
-        prim_groups.append([read_skin_prim(bs) for _ in range(prim_batch.prim_count)])
+        prim_batch.primitives = [
+            read_skin_prim(bs) for _ in range(prim_batch.prim_count)
+        ]
 
     # Read nodes
     bs.seek(root_node_off)
     nodes: list[Node] = []
     read_node(bs, nodes)
-    return Actor(vertices, prim_batches, prim_groups, nodes)
+    return Actor(vertices, prim_batches, nodes)
