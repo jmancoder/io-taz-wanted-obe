@@ -1,6 +1,5 @@
 import bpy
-from bpy.types import Context
-
+from bpy.types import Context, Object
 import numpy.typing as npt
 
 from . import reader
@@ -39,18 +38,20 @@ def strip_positions_to_triangles(
     return triangles
 
 
-def import_scene(context: Context, actor: reader.Actor) -> None:
-    if len(actor.vertices) == 0 or "position" not in actor.vertices.dtype.names:
-        return
+def import_mesh(
+    context: Context, vertices: npt.NDArray, prim_batches: list[reader.PrimBatch]
+) -> Object | None:
+    if len(vertices) == 0 or "position" not in vertices.dtype.names:
+        return None
 
     # Convert primitives to triangles
     triangles: list[tuple[int, int, int]] = []
     poly_group_lengths: list[int] = []
     start_vert = 0
-    for prim_batch in actor.prim_batches:
+    for prim_batch in prim_batches:
         tri_start_len = len(triangles)
         for prim in prim_batch.primitives:
-            prim_positions = actor.vertices["position"][
+            prim_positions = vertices["position"][
                 start_vert : start_vert + prim.vertex_count
             ]
             if prim.prim_type == 4:
@@ -85,10 +86,9 @@ def import_scene(context: Context, actor: reader.Actor) -> None:
         poly_group_lengths.append(len(triangles) - tri_start_len)
 
     # Import geometry
-    print(actor.vertices.dtype)
     mesh = bpy.data.meshes.new("Mesh")
     mesh.from_pydata(
-        actor.vertices["position"],
+        vertices["position"],
         [],
         triangles,
     )
@@ -96,7 +96,7 @@ def import_scene(context: Context, actor: reader.Actor) -> None:
     # Create and assign materials
     start_poly = 0
     mat_names: list[str] = []
-    for prim_batch, poly_group_len in zip(actor.prim_batches, poly_group_lengths):
+    for prim_batch, poly_group_len in zip(prim_batches, poly_group_lengths):
         mat_name = str(prim_batch.tex_0_crc)
         if mat_name not in mat_names:
             mesh.materials.append(bpy.data.materials.new(mat_name))
@@ -115,20 +115,20 @@ def import_scene(context: Context, actor: reader.Actor) -> None:
     # Import vertex UV layers
     for i in range(2):
         uv_field = f"uv_{i}"
-        if uv_field not in actor.vertices.dtype.names:
+        if uv_field not in vertices.dtype.names:
             continue
-        uv_data = actor.vertices[uv_field]
+        uv_data = vertices[uv_field]
         uv_layer = mesh.uv_layers.new(name=f"UV{i}")
         for loop in mesh.loops:
             uv = uv_data[loop.vertex_index]
             uv_layer.data[loop.index].uv = (uv[0], 1.0 - uv[1])
 
     # Import vertex normals
-    if "normal" in actor.vertices.dtype.names:
-        mesh.normals_split_custom_set_from_vertices(actor.vertices["normal"])
+    if "normal" in vertices.dtype.names:
+        mesh.normals_split_custom_set_from_vertices(vertices["normal"])
 
     # Import vertex colors
-    if "color" in actor.vertices.dtype.names:
+    if "diffuse" in vertices.dtype.names:
         vertex_color_attr = mesh.color_attributes.new(
             name="vertex_color",
             type="BYTE_COLOR",
@@ -136,5 +136,29 @@ def import_scene(context: Context, actor: reader.Actor) -> None:
         )
         vertex_color_attr.data.foreach_set(
             "color",
-            actor.vertices["color"].flatten(),
+            vertices["diffuse"].flatten(),
         )
+
+    return mesh_obj
+
+
+def import_node(context: Context, node: reader.Node) -> None:
+    if type(node) is reader.MeshNode:
+        mesh_obj = import_mesh(context, node.vertices, node.prim_batches)
+        if mesh_obj is not None:
+            mesh_obj.scale *= 0.01
+
+    # Import child nodes
+    for child_node in node.child_nodes:
+        import_node(context, child_node)
+
+
+def import_actor(context: Context, actor: reader.Actor) -> None:
+    # Import skin mesh
+    skin_mesh_obj = import_mesh(context, actor.vertices, actor.prim_batches)
+    if skin_mesh_obj is not None:
+        skin_mesh_obj.scale *= 0.01
+
+    # Import nodes
+    for root_node in actor.root_nodes:
+        import_node(context, root_node)
