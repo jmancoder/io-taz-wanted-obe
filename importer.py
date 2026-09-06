@@ -105,6 +105,7 @@ def import_mesh(
             mesh.polygons[start_poly + i].material_index = mat_names.index(mat_name)
         start_poly += poly_group_len
 
+    # Delay mesh validation so polygons match triangles
     mesh.validate()
     mesh.update()
 

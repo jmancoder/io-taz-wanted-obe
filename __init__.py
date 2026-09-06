@@ -36,8 +36,11 @@ class IMPORT_OT_obe(Operator, ImportHelper):
     def execute(self, context: Context):
         mp_path = Path(self.filepath)
         with open(mp_path, "rb") as f:
-            actor = reader.read_actor(f)
-        importer.import_actor(context, actor)
+            actor = reader.read_obe(f)
+
+        if type(actor) is reader.Actor:
+            importer.import_actor(context, actor)
+
         return {"FINISHED"}
 
 

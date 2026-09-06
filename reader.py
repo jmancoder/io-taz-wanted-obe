@@ -56,8 +56,8 @@ class Node:
 
 @dataclass
 class BoneNode(Node):
-    transform: Matrix
-    matrix_palette_index: int
+    inverse_transform: Matrix
+    matrix_index: int
 
 
 @dataclass
@@ -126,14 +126,18 @@ def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
         child_node_off = bs.read_uint32()
         node_type = bs.read_uint8()
         flags = bs.read_uint8()
+        bs.seek(2, 1)
+        crc = bs.read_uint32()
+        anim_event_off = bs.read_uint32()
+        anim_event_count = bs.read_uint32()
 
         bs.seek(cur_node_off + 0x70)
         if node_type == 1:
             # Read bone node
-            transform = bs.read_matrix_4x4()
-            matrix_pal_idx = bs.read_int32()
-            bs.seek(44, 1)
-            node = BoneNode([], transform, matrix_pal_idx)
+            inverse_transform = bs.read_matrix_4x4()
+            matrix_idx = bs.read_int32()
+            bs.seek(12, 1)
+            node = BoneNode([], inverse_transform, matrix_idx)
         elif node_type == 2:
             # Read mesh node
             vert_count = bs.read_uint32()
@@ -251,28 +255,36 @@ def fvf_to_dtype(fvf: int) -> npt.DTypeLike:
     return np.dtype(fields)
 
 
-def read_actor(f: BufferedReader) -> Actor:
-    bs = BinaryReader(f.read())
-
-    # Read header
-    sig = bs.read_uint32()
-    version = bs.read_uint32()
-    if version != 0x10000:
-        print(f"Warning: version {hex(version)} is untested")
+def read_actor(bs: BinaryReader) -> Actor:
+    # Read skin info
     bs.seek(0x20)
     vertex_count = bs.read_uint16()
     prim_batch_count = bs.read_uint16()
     vertex_off = bs.read_uint32()
     prim_batch_off = bs.read_uint32()
     prim_off = bs.read_uint32()
+    bones_per_vertex = bs.read_uint8()
+    bs.seek(3, 1)
+    skin_flags = bs.read_uint32()
+
+    # Read actor info
     bs.seek(0x60)
     root_node_off = bs.read_uint32()
-    bs.seek(0x99)
-    fvf_idx = bs.read_uint8()
+    flags = bs.read_uint32()
+    last_frame = bs.read_uint32()
+    max_prim_verts = bs.read_uint32()
+    max_total_prim_verts = bs.read_uint32()
+    anim_segment_off = bs.read_uint32()
+    anim_segment_count = bs.read_uint32()
+    max_radius = bs.read_float()
+    bounds = [bs.read_float() for _ in range(6)]
+    matrix_pal_size = bs.read_uint8()
+    vertex_type = bs.read_uint8()
+    bs.seek(2, 1)
 
     # Read skin vertices
     bs.seek(vertex_off)
-    vertex_dtype = fvf_to_dtype(FVF_LIST[fvf_idx])
+    vertex_dtype = fvf_to_dtype(FVF_LIST[vertex_type])
     vertices = np.frombuffer(bs.getbuffer(), vertex_dtype, vertex_count, bs.tell())
     bs.seek(vertices.nbytes, 1)
 
@@ -290,3 +302,15 @@ def read_actor(f: BufferedReader) -> Actor:
     root_nodes: list[Node] = []
     read_node(bs, root_nodes)
     return Actor(vertices, prim_batches, root_nodes)
+
+
+def read_obe(f: BufferedReader) -> Actor | None:
+    bs = BinaryReader(f.read())
+    bs.seek(0x6)
+    res_type = bs.read_uint8()
+    bs.seek(0xC)
+    crc = bs.read_uint32()
+    if res_type == 1:
+        return read_actor(bs)
+    else:
+        raise NotImplementedError(f"Unimplemented resource type {res_type}")
