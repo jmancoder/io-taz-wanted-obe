@@ -37,7 +37,26 @@ class SkinPrim(NamedTuple):
     flags: int
     vertex_count: int
     matrix_count: int
-    draw_count: int
+    tri_count: int
+    matrix_indexes: list[int]
+
+
+class Key3(NamedTuple):
+    frame: int
+    value: tuple[float, float, float]
+
+
+class Key4(NamedTuple):
+    frame: int
+    value: tuple[float, float, float, float]
+
+
+class Track3(NamedTuple):
+    keys: list[Key3]
+
+
+class Track4(NamedTuple):
+    keys: list[Key4]
 
 
 @dataclass
@@ -51,6 +70,9 @@ class PrimBatch:
 
 @dataclass
 class Node:
+    position_track: Track3
+    scale_track: Track3
+    rotation_track: Track4
     child_nodes: list[Node]
 
 
@@ -81,10 +103,18 @@ class MeshNode(Node):
     mesh_flags: int
 
 
+class AnimSegment(NamedTuple):
+    crc: int
+    start_frame: int
+    end_frame: int
+    ticks_per_frame: int
+
+
 class Actor(NamedTuple):
     vertices: npt.NDArray
     prim_batches: list[PrimBatch]
     root_nodes: list[Node]
+    anim_segments: list[AnimSegment]
 
 
 def read_mesh_prim(bs: BinaryReader) -> MeshPrim:
@@ -109,16 +139,67 @@ def read_skin_prim(bs: BinaryReader) -> SkinPrim:
     flags = bs.read_uint8()
     vertex_count = bs.read_uint16()
     matrix_count = bs.read_uint8()
-    bs.read_uint8()
-    draw_count = bs.read_uint16()
+    bs.seek(1, 1)
+    tri_count = bs.read_uint16()
     matrix_indexes = [bs.read_uint8() for _ in range(12)]
-    return SkinPrim(prim_type, flags, vertex_count, matrix_count, draw_count)
+    return SkinPrim(
+        prim_type, flags, vertex_count, matrix_count, tri_count, matrix_indexes
+    )
+
+
+def read_key_3(bs: BinaryReader) -> Key3:
+    frame = bs.read_uint16()
+    value = bs.read_vec3H_quant()
+    return Key3(frame, value)
+
+
+def read_key_4(bs: BinaryReader) -> Key4:
+    frame = bs.read_uint16()
+    value = bs.read_vec4H_quant()
+    return Key4(frame, value)
+
+
+def read_track_3(bs: BinaryReader) -> Track3:
+    key_type = bs.read_uint16()
+    key_count = bs.read_uint16()
+    key_off = bs.read_uint32()
+    quant_base = bs.read_vec3f()
+    quant_scale = bs.read_vec3f()
+    track_end_off = bs.tell()
+
+    # Read keyframes and return to track end
+    bs.seek(key_off)
+    keys = [read_key_3(bs) for _ in range(key_count)]
+    bs.seek(track_end_off)
+    return Track3(keys)
+
+
+def read_track_4(bs: BinaryReader) -> Track4:
+    key_type = bs.read_uint32()
+    key_count = bs.read_uint32()
+    key_off = bs.read_uint32()
+    bs.seek(4, 1)
+    quant_base = bs.read_vec4f()
+    quant_scale = bs.read_vec4f()
+    track_end_off = bs.tell()
+
+    # Read keyframes and return to track end
+    bs.seek(key_off)
+    keys = [read_key_4(bs) for _ in range(key_count)]
+    bs.seek(track_end_off)
+    return Track4(keys)
 
 
 def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
     start_node_off = bs.tell()
     cur_node_off = start_node_off
     while True:
+        # Read animation tracks
+        position_track = read_track_3(bs)
+        scale_track = read_track_3(bs)
+        rotation_track = read_track_4(bs)
+
+        # Read node header
         bs.seek(cur_node_off + 0xE0)
         next_node_off = bs.read_uint32()
         prev_node_off = bs.read_uint32()
@@ -131,13 +212,21 @@ def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
         anim_event_off = bs.read_uint32()
         anim_event_count = bs.read_uint32()
 
+        # Read node type-specific fields
         bs.seek(cur_node_off + 0x70)
         if node_type == 1:
             # Read bone node
             inverse_transform = bs.read_matrix_4x4()
             matrix_idx = bs.read_int32()
             bs.seek(12, 1)
-            node = BoneNode([], inverse_transform, matrix_idx)
+            node = BoneNode(
+                position_track,
+                scale_track,
+                rotation_track,
+                [],
+                inverse_transform,
+                matrix_idx,
+            )
         elif node_type == 2:
             # Read mesh node
             vert_count = bs.read_uint32()
@@ -185,6 +274,9 @@ def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
                 ]
 
             node = MeshNode(
+                position_track,
+                scale_track,
+                rotation_track,
                 [],
                 vertices,
                 prim_batches,
@@ -205,7 +297,7 @@ def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
                 mesh_flags,
             )
         else:
-            node = Node([])
+            node = Node(position_track, scale_track, rotation_track, [])
             print(f"WARNING: Unimplemented node type {node_type}")
 
         # Read child nodes
@@ -218,6 +310,7 @@ def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
         cur_node_off = next_node_off
         if cur_node_off == start_node_off:
             break
+        bs.seek(cur_node_off)
 
 
 def fvf_to_dtype(fvf: int) -> npt.DTypeLike:
@@ -253,6 +346,17 @@ def fvf_to_dtype(fvf: int) -> npt.DTypeLike:
         fields.append((f"uv_{i}", "<f4", 2))
 
     return np.dtype(fields)
+
+
+def read_anim_segment(bs: BinaryReader) -> AnimSegment:
+    crc = bs.read_uint32()
+    start_frame = bs.read_uint32()
+    end_frame = bs.read_uint32()
+    ticks_per_frame = bs.read_uint32()
+    context = bs.read_uint32()
+    name_off = bs.read_uint32()
+    bs.seek(8, 1)
+    return AnimSegment(crc, start_frame, end_frame, ticks_per_frame)
 
 
 def read_actor(bs: BinaryReader) -> Actor:
@@ -301,7 +405,11 @@ def read_actor(bs: BinaryReader) -> Actor:
     bs.seek(root_node_off)
     root_nodes: list[Node] = []
     read_node(bs, root_nodes)
-    return Actor(vertices, prim_batches, root_nodes)
+
+    # Read anim segments
+    bs.seek(anim_segment_off)
+    anim_segments = [read_anim_segment(bs) for _ in range(anim_segment_count)]
+    return Actor(vertices, prim_batches, root_nodes, anim_segments)
 
 
 def read_obe(f: BufferedReader) -> Actor | None:
