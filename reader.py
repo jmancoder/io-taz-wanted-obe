@@ -9,21 +9,6 @@ import numpy.typing as npt
 
 from .binary_reader import BinaryReader
 
-FVF_LIST = [
-    0x0000115C,
-    0x0000125C,
-    0x0000135C,
-    0x0000145C,
-    0x00000000,
-    0x00000000,
-    0x00000000,
-    0x00000000,
-    0x0000115C,
-    0x0000125C,
-    0x0000135C,
-    0x0000145C,
-]
-
 
 class MeshPrim(NamedTuple):
     prim_type: int
@@ -313,41 +298,6 @@ def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
         bs.seek(cur_node_off)
 
 
-def fvf_to_dtype(fvf: int) -> npt.DTypeLike:
-    XYZ = 0x02
-    XYZRHW = 0x04
-    NORMAL = 0x10
-    PSIZE = 0x20
-    DIFFUSE = 0x40
-    SPECULAR = 0x80
-    TEX_MASK = 0xF00
-
-    fields = []
-
-    pos = fvf & 0x400E
-    if pos == XYZ:
-        fields.append(("position", "<f4", 3))
-    elif pos == XYZRHW:
-        fields.append(("position", "<f4", 4))
-    elif 0x06 <= pos <= 0x0E:
-        n = (pos - 0x06) // 2 + 1
-        fields += [("position", "<f4", 3), ("weights", "<f4", n)]
-
-    if fvf & NORMAL:
-        fields.append(("normal", "<f4", 3))
-    if fvf & PSIZE:
-        fields.append(("point_size", "<f4"))
-    if fvf & DIFFUSE:
-        fields.append(("diffuse", "<u1", 4))
-    if fvf & SPECULAR:
-        fields.append(("specular", "<u1", 4))
-
-    for i in range((fvf & TEX_MASK) >> 8):
-        fields.append((f"uv_{i}", "<f4", 2))
-
-    return np.dtype(fields)
-
-
 def read_anim_segment(bs: BinaryReader) -> AnimSegment:
     crc = bs.read_uint32()
     start_frame = bs.read_uint32()
@@ -388,7 +338,28 @@ def read_actor(bs: BinaryReader) -> Actor:
 
     # Read skin vertices
     bs.seek(vertex_off)
-    vertex_dtype = fvf_to_dtype(FVF_LIST[vertex_type])
+    vertex_dtype_fields = [
+        ("position", np.float32, 3),
+        ("weights", np.float32, 3),
+        ("indices", np.int8, 4),
+        ("normal", np.float32, 3),
+        ("diffuse", np.uint8, 4),
+    ]
+    match vertex_type:
+        case 0 | 8:
+            uv_count = 1
+        case 1 | 9:
+            uv_count = 2
+        case 2 | 10:
+            uv_count = 3
+        case 3 | 11:
+            uv_count = 4
+        case _:
+            uv_count = 0
+            vertex_dtype_fields = []
+    if uv_count > 0:
+        vertex_dtype_fields.append(("uv", np.float32, (2, uv_count)))
+    vertex_dtype = np.dtype(vertex_dtype_fields)
     vertices = np.frombuffer(bs.getbuffer(), vertex_dtype, vertex_count, bs.tell())
     bs.seek(vertices.nbytes, 1)
 
