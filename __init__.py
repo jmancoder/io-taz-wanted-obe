@@ -38,8 +38,9 @@ class IMPORT_OT_obe(Operator, ImportHelper):
         with open(mp_path, "rb") as f:
             actor = reader.read_obe(f)
 
+        obe_importer = importer.OBEImporter(context)
         if type(actor) is reader.Actor:
-            importer.import_actor(context, actor)
+            obe_importer.import_actor(actor)
 
         return {"FINISHED"}
 

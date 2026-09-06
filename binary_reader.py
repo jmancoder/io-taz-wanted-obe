@@ -57,4 +57,4 @@ class BinaryReader(BytesIO):
         return struct.unpack(self.endian_symbol + "4f", self.read(16))
 
     def read_matrix_4x4(self) -> Matrix:
-        return Matrix([self.read_vec4f() for _ in range(4)])
+        return Matrix([self.read_vec4f() for _ in range(4)]).transposed()

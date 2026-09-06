@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from io import BufferedReader
+import logging
 from typing import NamedTuple
 
 from mathutils import Matrix
@@ -23,7 +24,7 @@ class SkinPrim(NamedTuple):
     vertex_count: int
     matrix_count: int
     tri_count: int
-    matrix_indexes: list[int]
+    matrix_pal_indexes: list[int]
 
 
 class Key3(NamedTuple):
@@ -55,10 +56,12 @@ class PrimBatch:
 
 @dataclass
 class Node:
+    crc: int
+    parent: Node | None
+    child_nodes: list[Node]
     position_track: Track3
     scale_track: Track3
     rotation_track: Track4
-    child_nodes: list[Node]
 
 
 @dataclass
@@ -96,6 +99,7 @@ class AnimSegment(NamedTuple):
 
 
 class Actor(NamedTuple):
+    crc: int
     vertices: npt.NDArray
     prim_batches: list[PrimBatch]
     root_nodes: list[Node]
@@ -126,9 +130,9 @@ def read_skin_prim(bs: BinaryReader) -> SkinPrim:
     matrix_count = bs.read_uint8()
     bs.seek(1, 1)
     tri_count = bs.read_uint16()
-    matrix_indexes = [bs.read_uint8() for _ in range(12)]
+    matrix_pal_indexes = [bs.read_uint8() for _ in range(12)]
     return SkinPrim(
-        prim_type, flags, vertex_count, matrix_count, tri_count, matrix_indexes
+        prim_type, flags, vertex_count, matrix_count, tri_count, matrix_pal_indexes
     )
 
 
@@ -175,7 +179,9 @@ def read_track_4(bs: BinaryReader) -> Track4:
     return Track4(keys)
 
 
-def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
+def read_node(
+    bs: BinaryReader, sibling_nodes: list[Node], parent_node: Node | None = None
+) -> None:
     start_node_off = bs.tell()
     cur_node_off = start_node_off
     while True:
@@ -205,10 +211,12 @@ def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
             matrix_idx = bs.read_int32()
             bs.seek(12, 1)
             node = BoneNode(
+                crc,
+                parent_node,
+                [],
                 position_track,
                 scale_track,
                 rotation_track,
-                [],
                 inverse_transform,
                 matrix_idx,
             )
@@ -242,7 +250,7 @@ def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
                     ("position", np.float32, 3),
                     ("normal", np.float32, 3),
                     ("diffuse", np.uint8, 4),
-                    ("uv", np.float32, 2),
+                    ("uvs", np.float32, (1, 2)),
                 ]
             )
             vertices = np.frombuffer(
@@ -259,10 +267,12 @@ def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
                 ]
 
             node = MeshNode(
+                crc,
+                parent_node,
+                [],
                 position_track,
                 scale_track,
                 rotation_track,
-                [],
                 vertices,
                 prim_batches,
                 solid_batch_count,
@@ -282,11 +292,13 @@ def read_node(bs: BinaryReader, nodes: list[Node]) -> None:
                 mesh_flags,
             )
         else:
-            node = Node(position_track, scale_track, rotation_track, [])
-            print(f"WARNING: Unimplemented node type {node_type}")
+            node = Node(
+                crc, parent_node, [], position_track, scale_track, rotation_track
+            )
+            logging.error(f"Unimplemented node type {node_type}")
 
         # Read child nodes
-        nodes.append(node)
+        sibling_nodes.append(node)
         if child_node_off != 0:
             bs.seek(child_node_off)
             read_node(bs, node.child_nodes)
@@ -309,7 +321,7 @@ def read_anim_segment(bs: BinaryReader) -> AnimSegment:
     return AnimSegment(crc, start_frame, end_frame, ticks_per_frame)
 
 
-def read_actor(bs: BinaryReader) -> Actor:
+def read_actor(bs: BinaryReader, crc: int) -> Actor:
     # Read skin info
     bs.seek(0x20)
     vertex_count = bs.read_uint16()
@@ -358,7 +370,7 @@ def read_actor(bs: BinaryReader) -> Actor:
             uv_count = 0
             vertex_dtype_fields = []
     if uv_count > 0:
-        vertex_dtype_fields.append(("uv", np.float32, (2, uv_count)))
+        vertex_dtype_fields.append(("uvs", np.float32, (uv_count, 2)))
     vertex_dtype = np.dtype(vertex_dtype_fields)
     vertices = np.frombuffer(bs.getbuffer(), vertex_dtype, vertex_count, bs.tell())
     bs.seek(vertices.nbytes, 1)
@@ -380,7 +392,7 @@ def read_actor(bs: BinaryReader) -> Actor:
     # Read anim segments
     bs.seek(anim_segment_off)
     anim_segments = [read_anim_segment(bs) for _ in range(anim_segment_count)]
-    return Actor(vertices, prim_batches, root_nodes, anim_segments)
+    return Actor(crc, vertices, prim_batches, root_nodes, anim_segments)
 
 
 def read_obe(f: BufferedReader) -> Actor | None:
@@ -390,6 +402,6 @@ def read_obe(f: BufferedReader) -> Actor | None:
     bs.seek(0xC)
     crc = bs.read_uint32()
     if res_type == 1:
-        return read_actor(bs)
+        return read_actor(bs, crc)
     else:
         raise NotImplementedError(f"Unimplemented resource type {res_type}")
