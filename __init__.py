@@ -16,8 +16,8 @@ from bpy_extras.io_utils import ImportHelper
 from bpy.props import StringProperty
 from bpy.types import Operator, Context
 
-from . import reader
-from . import importer
+from . import obe_reader
+from . import obe_importer
 
 
 class IMPORT_OT_obe(Operator, ImportHelper):
@@ -36,11 +36,11 @@ class IMPORT_OT_obe(Operator, ImportHelper):
     def execute(self, context: Context):
         mp_path = Path(self.filepath)
         with open(mp_path, "rb") as f:
-            actor = reader.read_obe(f)
+            actor = obe_reader.read_obe(f)
 
-        obe_importer = importer.OBEImporter(context)
-        if type(actor) is reader.Actor:
-            obe_importer.import_actor(actor)
+        importer = obe_importer.OBEImporter(context)
+        if type(actor) is obe_reader.Actor:
+            importer.import_actor(actor)
 
         return {"FINISHED"}
 

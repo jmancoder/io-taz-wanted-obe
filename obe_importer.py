@@ -4,7 +4,7 @@ import bpy
 from bpy.types import Armature, Context, EditBone, Object
 import numpy.typing as npt
 
-from . import reader
+from . import obe_reader
 
 
 def fan_positions_to_triangles(
@@ -51,7 +51,7 @@ class OBEImporter:
         self,
         name: str,
         vertices: npt.NDArray,
-        prim_batches: list[reader.PrimBatch],
+        prim_batches: list[obe_reader.PrimBatch],
     ) -> Object:
         # Create empty object if vertices cannot be read
         if len(vertices) == 0 or "position" not in vertices.dtype.names:
@@ -168,15 +168,15 @@ class OBEImporter:
         #         vertex_groups[int(idx)].add([i], weight, "ADD")
         return mesh_obj
 
-    def import_node(self, node: reader.Node) -> None:
-        if type(node) is reader.BoneNode:
+    def import_node(self, node: obe_reader.Node) -> None:
+        if type(node) is obe_reader.BoneNode:
             edit_bone = self.armature_obj.data.edit_bones.new(str(node.crc))
             edit_bone.length = 20.0
             edit_bone.matrix = node.inverse_transform.inverted()
             if node.parent is not None:
                 edit_bone.parent = self.bone_map[node.parent.crc]
             self.bone_map[node.crc] = edit_bone
-        elif type(node) is reader.MeshNode:
+        elif type(node) is obe_reader.MeshNode:
             mesh_obj = self.import_mesh(str(node.crc), node.vertices, node.prim_batches)
             if node.parent is None:
                 mesh_obj.parent = self.armature_obj
@@ -188,7 +188,7 @@ class OBEImporter:
         for child_node in node.child_nodes:
             self.import_node(child_node)
 
-    def import_actor(self, actor: reader.Actor) -> None:
+    def import_actor(self, actor: obe_reader.Actor) -> None:
         # Import skin mesh
         actor_name = str(actor.crc)
         armature = bpy.data.armatures.new(actor_name)
