@@ -2,9 +2,10 @@ bl_info = {
     "name": "ADDON_NAME",
     "author": "AUTHOR_NAME",
     "description": "",
+    "version": (0, 1, 0),
     "blender": (2, 80, 0),
-    "version": (0, 0, 1),
-    "location": "File > Import",
+    "location": "File > Import-Export",
+    "warning": "",
     "category": "Import-Export",
 }
 
@@ -20,8 +21,8 @@ from . import obe_reader
 from . import obe_importer
 
 
-class IMPORT_OT_obe(Operator, ImportHelper):
-    """Load a Taz Wanted OBE file."""
+class ImportOBE(Operator, ImportHelper):
+    """Load a Taz: Wanted OBE file."""
 
     bl_idname = "import_scene.obe"
     bl_label = "Import OBE"
@@ -34,28 +35,24 @@ class IMPORT_OT_obe(Operator, ImportHelper):
     )
 
     def execute(self, context: Context):
-        mp_path = Path(self.filepath)
-        with open(mp_path, "rb") as f:
-            actor = obe_reader.read_obe(f)
+        resource = obe_reader.read_obe(Path(self.filepath))
 
-        importer = obe_importer.OBEImporter(context)
-        if type(actor) is obe_reader.Actor:
-            importer.import_actor(actor)
-
+        if type(resource) is obe_reader.Actor:
+            obe_importer.import_actor(context, resource)
         return {"FINISHED"}
 
 
 def menu_func_import(self, context):
-    self.layout.operator(IMPORT_OT_obe.bl_idname, text="Taz Wanted Model (.obe)")
+    self.layout.operator(ImportOBE.bl_idname, text="Taz: Wanted Model (.obe)")
 
 
 def register():
-    bpy.utils.register_class(IMPORT_OT_obe)
+    bpy.utils.register_class(ImportOBE)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
 
 def unregister():
-    bpy.utils.unregister_class(IMPORT_OT_obe)
+    bpy.utils.unregister_class(ImportOBE)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
 
 

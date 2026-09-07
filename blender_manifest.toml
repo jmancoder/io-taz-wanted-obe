@@ -2,7 +2,7 @@ schema_version = "1.0.0"
 
 id = "io_taz_wanted_obe"
 version = "0.1.0"
-name = "Import-Export Taz Wanted OBE"
+name = "Import-Export Taz: Wanted OBE"
 tagline = "Import and export OBE models from Taz: Wanted"
 maintainer = "jmancoder"
 type = "add-on"

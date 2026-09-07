@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from io import BufferedReader
 import logging
+from pathlib import Path
 from typing import NamedTuple
 
 from mathutils import Matrix
@@ -395,8 +395,10 @@ def read_actor(bs: BinaryReader, crc: int) -> Actor:
     return Actor(crc, vertices, prim_batches, root_nodes, anim_segments)
 
 
-def read_obe(f: BufferedReader) -> Actor | None:
-    bs = BinaryReader(f.read())
+def read_obe(input_path: Path) -> Actor | None:
+    with open(input_path, "rb") as f:
+        bs = BinaryReader(f.read())
+
     bs.seek(0x6)
     res_type = bs.read_uint8()
     bs.seek(0xC)
