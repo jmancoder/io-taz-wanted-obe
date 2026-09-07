@@ -36,6 +36,12 @@ class BinaryReader(BytesIO):
     def read_int32(self) -> int:
         return int.from_bytes(self.read(4), signed=True, byteorder=self.byte_order)
 
+    def read_uint64(self) -> int:
+        return int.from_bytes(self.read(8), signed=True, byteorder=self.byte_order)
+
+    def read_int64(self) -> int:
+        return int.from_bytes(self.read(8), signed=True, byteorder=self.byte_order)
+
     def read_vec3H_quant(self) -> tuple[float, float, float]:
         x, y, z = struct.unpack(self.endian_symbol + "3H", self.read(6))
         return (x / 0xFFFF, y / 0xFFFF, z / 0xFFFF)
@@ -58,3 +64,12 @@ class BinaryReader(BytesIO):
 
     def read_matrix_4x4(self) -> Matrix:
         return Matrix([self.read_vec4f() for _ in range(4)]).transposed()
+
+    def read_cstring(self) -> str:
+        result = bytearray()
+        while True:
+            char = self.read(1)
+            if char == b"\x00" or char == b"":
+                break
+            result.extend(char)
+        return result.decode()
