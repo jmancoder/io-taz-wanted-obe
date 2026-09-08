@@ -302,7 +302,7 @@ def read_node(
         sibling_nodes.append(node)
         if child_node_off != 0:
             bs.seek(child_node_off)
-            read_node(bs, node.child_nodes)
+            read_node(bs, node.child_nodes, node)
 
         # Skip to next sibling node
         cur_node_off = next_node_off

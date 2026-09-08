@@ -70,7 +70,9 @@ def import_mesh(
             # Remap bone indices using matrix palette
             prim_vertices = vertices[start_vert : start_vert + prim.vertex_count]
             if type(prim) is obe_reader.SkinPrim:
-                prim_vertices["indices"] = prim.matrix_palette[prim_vertices["indices"] // 3]
+                prim_vertices["indices"] = prim.matrix_palette[
+                    prim_vertices["indices"] // 3
+                ]
 
             # Convert primitive to triangles
             prim_positions = prim_vertices["position"]
@@ -215,7 +217,9 @@ def import_actor(context: Context, actor: obe_reader.Actor) -> None:
     for root_node in actor.root_nodes:
         import_node(context, actor_context, root_node)
 
-    # Import skin mesh
+    # Import skin mesh if present
+    if len(actor.vertices) == 0:
+        return
     skin_mesh_obj = import_mesh(
         context, actor_context, actor_name, actor.vertices, actor.prim_batches
     )
