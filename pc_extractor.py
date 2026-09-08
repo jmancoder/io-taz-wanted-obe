@@ -16,7 +16,7 @@ class PackageHeader(NamedTuple):
     tag_count: int
     block_map_off: int
     block_map_size: int
-    file_path_array_off: int
+    path_array_off: int
     record_array_size: int
     start_sector: int
     build_number: int
@@ -26,9 +26,9 @@ class FileRecord(NamedTuple):
     data_off: int
     crc: int
     data_size: int
-    file_path_off: int
+    path_off_rel: int
     tag_count: int
-    tag_rel_off: int
+    tag_off_rel: int
     build_time: int
 
 
@@ -78,37 +78,44 @@ def read_file_record(bs: BinaryReader) -> FileRecord:
     )
 
 
-def extract_pc(input_path: Path, output_dir: Path) -> None:
+def extract_pc(input_path: Path, output_dir: Path) -> int:
     with open(input_path, "rb") as f:
         bs = BinaryReader(f.read())
 
     header = read_header(bs)
-    bs.seek(header.record_array_off)
+    bs.seek(header.record_array_off * header.alignment)
     file_records = [read_file_record(bs) for _ in range(header.file_count)]
 
-    # Extract stored files
     manifest_dict: dict[int, dict] = {}
+    extracted_file_count = 0
     for record in file_records:
-        bs.seek((header.tag_array_off + record.tag_rel_off) * header.alignment)
-        file_tags = [bs.read_cstring() for _ in range(record.tag_count)]
+        if record.tag_count == 0:
+            continue
 
-        bs.seek((header.file_path_array_off + record.file_path_off) * header.alignment)
+        # Read tags
+        bs.seek((header.tag_array_off * header.alignment) + record.tag_off_rel)
+        tags = [bs.read_cstring() for _ in range(record.tag_count)]
+
+        # Read and resolve path
+        bs.seek((header.path_array_off * header.alignment) + record.path_off_rel)
         file_path = bs.read_cstring()
-        output_path = output_dir / Path(file_path)
-        os.makedirs(output_path.parent, exist_ok=True)
 
+        # Extract file
+        output_path = output_dir / input_path.stem / Path(file_path)
+        os.makedirs(output_path.parent, exist_ok=True)
         bs.seek(record.data_off * header.alignment)
         with open(output_path, "wb") as f:
             f.write(bs.read(record.data_size))
+        extracted_file_count += 1
 
-        # Create manifest entry
         manifest_dict[record.crc] = {
             "path": file_path,
-            "tags": file_tags,
+            "tags": tags,
             "offset": record.data_off * header.alignment,
             "size": record.data_size,
         }
 
     # Create manifest file
-    with open(output_dir / "manifest.json", "wt") as f:
-        json.dump(manifest_dict, f)
+    with open(output_dir / f"{header.package_id}.json", "wt") as f:
+        json.dump(manifest_dict, f, indent=4)
+    return extracted_file_count
