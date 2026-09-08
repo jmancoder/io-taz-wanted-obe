@@ -24,7 +24,7 @@ class SkinPrim(NamedTuple):
     vertex_count: int
     matrix_count: int
     tri_count: int
-    matrix_pal_indexes: list[int]
+    matrix_palette: npt.NDArray
 
 
 class Key3(NamedTuple):
@@ -130,9 +130,10 @@ def read_skin_prim(bs: BinaryReader) -> SkinPrim:
     matrix_count = bs.read_uint8()
     bs.seek(1, 1)
     tri_count = bs.read_uint16()
-    matrix_pal_indexes = [bs.read_uint8() for _ in range(12)]
+    matrix_palette = np.frombuffer(bs.getbuffer(), np.uint8, 12, bs.tell())
+    bs.seek(matrix_palette.nbytes, 1)
     return SkinPrim(
-        prim_type, flags, vertex_count, matrix_count, tri_count, matrix_pal_indexes
+        prim_type, flags, vertex_count, matrix_count, tri_count, matrix_palette
     )
 
 
@@ -353,7 +354,7 @@ def read_actor(bs: BinaryReader, crc: int) -> Actor:
     vertex_dtype_fields = [
         ("position", np.float32, 3),
         ("weights", np.float32, 3),
-        ("indices", np.int8, 4),
+        ("indices", np.uint8, 4),
         ("normal", np.float32, 3),
         ("diffuse", np.uint8, 4),
     ]

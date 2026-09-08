@@ -1,8 +1,18 @@
+from dataclasses import dataclass
+import logging
+
 import bpy
 from bpy.types import Context, EditBone, Object
 import numpy.typing as npt
 
 from . import obe_reader
+
+
+@dataclass
+class ActorContext:
+    armature_obj: Object
+    bone_map: dict[int, EditBone]
+    object_map: dict[int, Object]
 
 
 def fan_positions_to_triangles(
@@ -40,6 +50,7 @@ def strip_positions_to_triangles(
 
 def import_mesh(
     context: Context,
+    actor_context: ActorContext,
     name: str,
     vertices: npt.NDArray,
     prim_batches: list[obe_reader.PrimBatch],
@@ -50,16 +61,19 @@ def import_mesh(
         context.collection.objects.link(empty_obj)
         return empty_obj
 
-    # Convert primitives to triangles
     triangles: list[tuple[int, int, int]] = []
     poly_group_lengths: list[int] = []
     start_vert = 0
     for prim_batch in prim_batches:
         tri_start_len = len(triangles)
         for prim in prim_batch.primitives:
-            prim_positions = vertices["position"][
-                start_vert : start_vert + prim.vertex_count
-            ]
+            # Remap bone indices using matrix palette
+            prim_vertices = vertices[start_vert : start_vert + prim.vertex_count]
+            if type(prim) is obe_reader.SkinPrim:
+                prim_vertices["indices"] = prim.matrix_palette[prim_vertices["indices"] // 3]
+
+            # Convert primitive to triangles
+            prim_positions = prim_vertices["position"]
             if prim.prim_type == 4:
                 # Triangle list
                 triangles.extend(
@@ -99,7 +113,7 @@ def import_mesh(
         triangles,
     )
 
-    # Create and assign materials
+    # Create and assign materials before mesh validation so polygons match triangles
     start_poly = 0
     mat_names: list[str] = []
     for prim_batch, poly_group_len in zip(prim_batches, poly_group_lengths):
@@ -111,7 +125,6 @@ def import_mesh(
             mesh.polygons[start_poly + i].material_index = mat_names.index(mat_name)
         start_poly += poly_group_len
 
-    # Delay mesh validation so polygons match triangles
     mesh.validate()
     mesh.update()
 
@@ -140,48 +153,51 @@ def import_mesh(
         vertices["diffuse"].flatten(),
     )
 
+    # Import vertex groups if present
     if "weights" not in vertices.dtype.names or "indices" not in vertices.dtype.names:
         return mesh_obj
-
-    # Import vertex groups
-    # vertex_groups = [
-    #     mesh_obj.vertex_groups.new(name=str(crc)) for crc in self.bone_crcs
-    # ]
-    # for i, (raw_weights, indices) in enumerate(
-    #     zip(vertices["weights"], vertices["indices"])
-    # ):
-    #     weights: list[float] = raw_weights.tolist()
-    #     weights.append(1.0 - sum(weights))
-    #     for idx, weight in zip(indices, weights):
-    #         vertex_groups[int(idx)].add([i], weight, "ADD")
+    vertex_groups = [
+        mesh_obj.vertex_groups.new(name=bone.name)
+        for bone in actor_context.bone_map.values()
+    ]
+    for i, (raw_weights, indices) in enumerate(
+        zip(vertices["weights"], vertices["indices"])
+    ):
+        weights: list[float] = raw_weights.tolist()
+        weights.append(1.0 - sum(weights))
+        for index, weight in zip(indices, weights):
+            vertex_groups[int(index)].add([i], weight, "ADD")
     return mesh_obj
 
 
 def import_node(
     context: Context,
-    armature_obj: Object,
-    bone_map: dict[int, EditBone],
-    object_map: dict[int, Object],
+    actor_context: ActorContext,
     node: obe_reader.Node,
 ) -> None:
     if type(node) is obe_reader.BoneNode:
-        edit_bone = armature_obj.data.edit_bones.new(str(node.crc))
-        edit_bone.length = 20.0
+        edit_bone = actor_context.armature_obj.data.edit_bones.new(str(node.crc))
+        edit_bone.length = 25.0
         edit_bone.matrix = node.inverse_transform.inverted()
         if node.parent is not None:
-            edit_bone.parent = bone_map[node.parent.crc]
-        bone_map[node.crc] = edit_bone
+            if type(node.parent) is obe_reader.BoneNode:
+                edit_bone.parent = actor_context.bone_map[node.parent.matrix_index]
+            else:
+                logging.warning("Parenting bones to non-bone nodes is unimplemented.")
+        actor_context.bone_map[node.matrix_index] = edit_bone
     elif type(node) is obe_reader.MeshNode:
-        mesh_obj = import_mesh(context, str(node.crc), node.vertices, node.prim_batches)
+        mesh_obj = import_mesh(
+            context, actor_context, str(node.crc), node.vertices, node.prim_batches
+        )
         if node.parent is None:
-            mesh_obj.parent = armature_obj
+            mesh_obj.parent = actor_context.armature_obj
         else:
-            mesh_obj.parent = object_map[node.parent.crc]
-        object_map[node.crc] = mesh_obj
+            mesh_obj.parent = actor_context.object_map[node.parent.crc]
+        actor_context.object_map[node.crc] = mesh_obj
 
     # Import child nodes
     for child_node in node.child_nodes:
-        import_node(context, armature_obj, bone_map, object_map, child_node)
+        import_node(context, actor_context, child_node)
 
 
 def import_actor(context: Context, actor: obe_reader.Actor) -> None:
@@ -195,12 +211,15 @@ def import_actor(context: Context, actor: obe_reader.Actor) -> None:
     bpy.ops.object.mode_set(mode="EDIT")
 
     # Import nodes
-    bone_map: dict[int, EditBone] = {}
-    object_map: dict[int, Object] = {}
+    actor_context = ActorContext(armature_obj, {}, {})
     for root_node in actor.root_nodes:
-        import_node(context, armature_obj, bone_map, object_map, root_node)
+        import_node(context, actor_context, root_node)
 
     # Import skin mesh
+    skin_mesh_obj = import_mesh(
+        context, actor_context, actor_name, actor.vertices, actor.prim_batches
+    )
     bpy.ops.object.mode_set(mode="OBJECT")
-    skin_mesh_obj = import_mesh(context, actor_name, actor.vertices, actor.prim_batches)
     skin_mesh_obj.parent = armature_obj
+    modifier = skin_mesh_obj.modifiers.new("Armature", "ARMATURE")
+    modifier.object = armature_obj
