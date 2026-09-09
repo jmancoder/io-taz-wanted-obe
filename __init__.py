@@ -14,25 +14,31 @@ from pathlib import Path
 
 import bpy
 from bpy_extras.io_utils import ImportHelper
-from bpy.props import StringProperty, CollectionProperty, PointerProperty
+from bpy.props import CollectionProperty, PointerProperty, StringProperty
 from bpy.types import (
-    Operator,
     Context,
+    Operator,
     OperatorFileListElement,
-    PropertyGroup,
     Panel,
+    PropertyGroup,
     Scene,
 )
 
-from . import obe_reader, obe_importer, pc_extractor
+from . import obe_reader, obe_importer, pc_extractor, texture_reader
 
 
 class PCExtractSettings(PropertyGroup):
-    output_dir: StringProperty(subtype="DIR_PATH")
+    output_dir: StringProperty(
+        name="Output Folder",
+        description="Choose an output folder to extract PC archives to.",
+        subtype="DIR_PATH",
+    )
 
 
 class ExtractPCArchives(Operator, ImportHelper):
-    bl_idname = "extract_archive.pc"
+    """Extract one or more PC archives to the chosen output folder."""
+
+    bl_idname = "extract_archive.taz_wanted_pc"
     bl_label = "Extract PC"
     filename_ext = ".pc"
 
@@ -65,26 +71,38 @@ class ExtractPCArchives(Operator, ImportHelper):
         return {"FINISHED"}
 
 
-class PC_PT_panel(Panel):
-    bl_label = "PC Extractor"
-    bl_idname = "PC_PT_panel"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "PC Extractor"
+class ImportBMP(Operator, ImportHelper):
+    """Load one or more BMP files from Taz: Wanted."""
 
-    def draw(self, context):
-        layout = self.layout
-        settings = context.scene.pc_extract_settings
-        layout.prop(settings, "output_dir", text="Output Folder")
-        layout.operator(
-            "extract_archive.pc",
-            text="Extract PC Archives",
-            icon="EXPORT",
+    bl_idname = "import_image.taz_wanted_bmp"
+    bl_label = "Import BMP"
+    filename_ext = ".bmp"
+
+    filter_glob: StringProperty(
+        default="*.bmp",
+        options={"HIDDEN"},
+    )
+    directory: StringProperty(subtype="DIR_PATH", options={"SKIP_SAVE", "HIDDEN"})
+    files: CollectionProperty(
+        type=OperatorFileListElement, options={"SKIP_SAVE", "HIDDEN"}
+    )
+
+    def execute(self, context):
+        for file in self.files:
+            input_path = Path(self.directory) / file.name
+            texture = texture_reader.read_bmp(input_path)
+            image = bpy.data.images.new(file.name, texture.width, texture.height)
+            image.pixels = texture.pixels
+
+        self.report(
+            {"INFO"},
+            f"Imported {len(self.files)} image{"" if len(self.files) == 1 else "s"}",
         )
+        return {"FINISHED"}
 
 
 class ImportOBE(Operator, ImportHelper):
-    """Load a Taz: Wanted OBE file."""
+    """Load one or more OBE files from Taz: Wanted."""
 
     bl_idname = "import_scene.obe"
     bl_label = "Import OBE"
@@ -95,24 +113,62 @@ class ImportOBE(Operator, ImportHelper):
         options={"HIDDEN"},
         maxlen=255,
     )
+    directory: StringProperty(subtype="DIR_PATH", options={"SKIP_SAVE", "HIDDEN"})
+    files: CollectionProperty(
+        type=OperatorFileListElement, options={"SKIP_SAVE", "HIDDEN"}
+    )
 
     def execute(self, context: Context):
-        resource = obe_reader.read_obe(Path(self.filepath))
+        actor_count = 0
+        for file in self.files:
+            input_path = Path(self.directory) / file.name
+            resource = obe_reader.read_obe(input_path)
+            if type(resource) is obe_reader.Actor:
+                obe_importer.import_actor(context, resource)
+                actor_count += 1
 
-        if type(resource) is obe_reader.Actor:
-            obe_importer.import_actor(context, resource)
+        self.report(
+            {"INFO"},
+            f"Imported {actor_count} actor{"" if actor_count == 1 else "s"}",
+        )
         return {"FINISHED"}
 
 
-def menu_func_import(self, context):
-    self.layout.operator(ImportOBE.bl_idname, text="Taz: Wanted Model (.obe)")
+class TAZ_WANTED_PT_panel(Panel):
+    bl_label = "Taz: Wanted"
+    bl_idname = "TAZ_WANTED_PT_panel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Taz: Wanted"
+
+    def draw(self, context):
+        layout = self.layout
+        settings = context.scene.pc_extract_settings
+        layout.prop(settings, "output_dir", text="Output Folder")
+        layout.operator(
+            "extract_archive.taz_wanted_pc",
+            text="Extract PC Archives",
+            icon="EXPORT",
+        )
+        layout.separator()
+        layout.operator(
+            "import_image.taz_wanted_bmp",
+            text="Import BMP",
+            icon="FILE_IMAGE",
+        )
+        layout.operator(
+            "import_scene.obe",
+            text="Import OBE",
+            icon="FILE_3D",
+        )
 
 
 classes = (
     PCExtractSettings,
     ExtractPCArchives,
-    PC_PT_panel,
+    ImportBMP,
     ImportOBE,
+    TAZ_WANTED_PT_panel,
 )
 
 
@@ -121,7 +177,6 @@ def register():
         bpy.utils.register_class(cls)
 
     Scene.pc_extract_settings = PointerProperty(type=PCExtractSettings)
-    bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
 
 def unregister():
@@ -129,7 +184,6 @@ def unregister():
         bpy.utils.unregister_class(cls)
 
     del Scene.pc_extract_settings
-    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
 
 
 if __name__ == "__main__":
