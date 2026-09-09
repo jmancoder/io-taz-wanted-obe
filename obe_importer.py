@@ -142,14 +142,14 @@ def import_mesh(
     )
 
     # Import materials before mesh validation so polygons match triangles
-    mat_names: list[str] = []
     start_poly = 0
     for prim_batch, poly_group_len in zip(prim_batches, poly_group_lengths):
-        image = import_image(context, actor_context, prim_batch.tex_0_crc)
-        # Create material named with its texture CRC
+        # Create material using first texture CRC
         mat_name = str(prim_batch.tex_0_crc)
-        if mat_name not in mat_names:
+        mat = bpy.data.materials.get(mat_name)
+        if mat is None:
             mat = bpy.data.materials.new(mat_name)
+            image = import_image(context, actor_context, prim_batch.tex_0_crc)
             if image is not None:
                 # Add and link Image Texture node
                 mat.use_nodes = True
@@ -162,12 +162,15 @@ def import_mesh(
                 mat.node_tree.links.new(
                     bsdf.inputs["Alpha"], image_node.outputs["Alpha"]
                 )
-            mesh.materials.append(mat)
-            mat_names.append(mat_name)
 
         # Assign material indexes
+        if mat_name in mesh.materials:
+            mat_idx = mesh.materials.index(mat_name)
+        else:
+            mesh.materials.append(mat)
+            mat_idx = len(mesh.materials)
         for i in range(poly_group_len):
-            mesh.polygons[start_poly + i].material_index = mat_names.index(mat_name)
+            mesh.polygons[start_poly + i].material_index = mat_idx
         start_poly += poly_group_len
 
     mesh.validate()
