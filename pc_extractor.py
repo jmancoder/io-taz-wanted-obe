@@ -87,6 +87,7 @@ def extract_pc(input_path: Path, output_dir: Path) -> int:
     file_records = [read_file_record(bs) for _ in range(header.file_count)]
 
     manifest_dict: dict[int, dict] = {}
+    output_dir = output_dir / input_path.stem
     extracted_file_count = 0
     for record in file_records:
         if record.tag_count == 0:
@@ -101,7 +102,7 @@ def extract_pc(input_path: Path, output_dir: Path) -> int:
         file_path = bs.read_cstring()
 
         # Extract file
-        output_path = output_dir / input_path.stem / Path(file_path)
+        output_path = output_dir / Path(file_path)
         os.makedirs(output_path.parent, exist_ok=True)
         bs.seek(record.data_off * header.alignment)
         with open(output_path, "wb") as f:
@@ -116,6 +117,6 @@ def extract_pc(input_path: Path, output_dir: Path) -> int:
         }
 
     # Create manifest file
-    with open(output_dir / f"{header.package_id}.json", "wt") as f:
+    with open(output_dir / f"manifest.json", "wt") as f:
         json.dump(manifest_dict, f, indent=4)
     return extracted_file_count

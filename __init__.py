@@ -27,11 +27,17 @@ from bpy.types import (
 from . import obe_reader, obe_importer, pc_extractor, texture_reader
 
 
-class PCExtractSettings(PropertyGroup):
-    output_dir: StringProperty(
-        name="Output Folder",
-        description="Choose an output folder to extract PC archives to.",
+class TazWantedSettings(PropertyGroup):
+    pc_output_dir: StringProperty(
+        name="PC Output Folder",
+        description="Output folder to extract the PC archive(s) to.",
         subtype="DIR_PATH",
+    )
+    manifest_path: StringProperty(
+        name="Manifest Path",
+        description="Path to the manifest.json of the package"
+        "you are importing from. Used to locate dependencies.",
+        subtype="FILE_PATH",
     )
 
 
@@ -52,11 +58,11 @@ class ExtractPCArchives(Operator, ImportHelper):
     )
 
     def execute(self, context):
-        settings = context.scene.pc_extract_settings
-        if not settings.output_dir:
+        settings = context.scene.taz_wanted_settings
+        if not settings.pc_output_dir:
             self.report({"ERROR"}, "No output folder selected")
             return {"CANCELLED"}
-        output_dir = Path(settings.output_dir)
+        output_dir = Path(settings.pc_output_dir)
 
         output_file_count = 0
         for file in self.files:
@@ -143,14 +149,15 @@ class TAZ_WANTED_PT_panel(Panel):
 
     def draw(self, context):
         layout = self.layout
-        settings = context.scene.pc_extract_settings
-        layout.prop(settings, "output_dir", text="Output Folder")
+        settings = context.scene.taz_wanted_settings
+        layout.prop(settings, "pc_output_dir", text="Output Folder")
         layout.operator(
             "extract_archive.taz_wanted_pc",
             text="Extract PC Archives",
             icon="EXPORT",
         )
-        layout.separator()
+        layout.separator(type="LINE")
+        layout.prop(settings, "manifest_path", text="Manifest Path")
         layout.operator(
             "import_image.taz_wanted_bmp",
             text="Import BMP",
@@ -164,7 +171,7 @@ class TAZ_WANTED_PT_panel(Panel):
 
 
 classes = (
-    PCExtractSettings,
+    TazWantedSettings,
     ExtractPCArchives,
     ImportBMP,
     ImportOBE,
@@ -175,15 +182,13 @@ classes = (
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-
-    Scene.pc_extract_settings = PointerProperty(type=PCExtractSettings)
+    Scene.taz_wanted_settings = PointerProperty(type=TazWantedSettings)
 
 
 def unregister():
     for cls in classes:
         bpy.utils.unregister_class(cls)
-
-    del Scene.pc_extract_settings
+    del Scene.taz_wanted_settings
 
 
 if __name__ == "__main__":

@@ -1,15 +1,18 @@
 from dataclasses import dataclass
+from pathlib import Path
+import json
 import logging
 
 import bpy
-from bpy.types import Context, EditBone, Object
+from bpy.types import Context, EditBone, Image, Object
 import numpy.typing as npt
 
-from . import obe_reader
+from . import obe_reader, texture_reader
 
 
 @dataclass
 class ActorContext:
+    manifest: dict | None
     armature_obj: Object
     bone_map: dict[int, EditBone]
     object_map: dict[int, Object]
@@ -46,6 +49,29 @@ def strip_positions_to_triangles(
                 )
             )
     return triangles
+
+
+def import_image(
+    context: Context, actor_context: ActorContext, crc: int
+) -> Image | None:
+    crc_str = str(crc)
+    if actor_context.manifest is None:
+        return None
+    if crc_str not in actor_context.manifest:
+        return None
+    rel_path = actor_context.manifest[crc_str].get("path")
+    if rel_path is None:
+        return None
+    rel_path = Path(rel_path)
+    manifest_path = Path(context.scene.taz_wanted_settings.manifest_path)
+    try:
+        texture = texture_reader.read_bmp(manifest_path.parent / rel_path)
+        image = bpy.data.images.new(rel_path.stem, texture.width, texture.height)
+        image.pixels = texture.pixels
+        return image
+    except:
+        logging.exception(f"Failed to read texture {rel_path.stem}")
+    return None
 
 
 def import_mesh(
@@ -115,14 +141,31 @@ def import_mesh(
         triangles,
     )
 
-    # Create and assign materials before mesh validation so polygons match triangles
-    start_poly = 0
+    # Import materials before mesh validation so polygons match triangles
     mat_names: list[str] = []
+    start_poly = 0
     for prim_batch, poly_group_len in zip(prim_batches, poly_group_lengths):
+        image = import_image(context, actor_context, prim_batch.tex_0_crc)
+        # Create material named with its texture CRC
         mat_name = str(prim_batch.tex_0_crc)
         if mat_name not in mat_names:
-            mesh.materials.append(bpy.data.materials.new(mat_name))
+            mat = bpy.data.materials.new(mat_name)
+            if image is not None:
+                # Add and link Image Texture node
+                mat.use_nodes = True
+                bsdf = mat.node_tree.nodes["Principled BSDF"]
+                image_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+                image_node.image = image
+                mat.node_tree.links.new(
+                    bsdf.inputs["Base Color"], image_node.outputs["Color"]
+                )
+                mat.node_tree.links.new(
+                    bsdf.inputs["Alpha"], image_node.outputs["Alpha"]
+                )
+            mesh.materials.append(mat)
             mat_names.append(mat_name)
+
+        # Assign material indexes
         for i in range(poly_group_len):
             mesh.polygons[start_poly + i].material_index = mat_names.index(mat_name)
         start_poly += poly_group_len
@@ -212,8 +255,18 @@ def import_actor(context: Context, actor: obe_reader.Actor) -> None:
     bpy.context.view_layer.objects.active = armature_obj
     bpy.ops.object.mode_set(mode="EDIT")
 
+    # Load manifest file
+    manifest_path = context.scene.taz_wanted_settings.manifest_path
+    try:
+        assert manifest_path != ""
+        with open(manifest_path, "rt") as f:
+            manifest = json.load(f)
+    except:
+        logging.exception("Failed to load manifest.json")
+        manifest = None
+
     # Import nodes
-    actor_context = ActorContext(armature_obj, {}, {})
+    actor_context = ActorContext(manifest, armature_obj, {}, {})
     for root_node in actor.root_nodes:
         import_node(context, actor_context, root_node)
 

@@ -407,4 +407,4 @@ def read_obe(input_path: Path) -> Actor | None:
     if res_type == 1:
         return read_actor(bs, crc)
     else:
-        raise NotImplementedError(f"Unimplemented resource type {res_type}")
+        logging.error(f"Unimplemented resource type {res_type}")
