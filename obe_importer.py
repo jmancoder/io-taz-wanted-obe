@@ -275,11 +275,12 @@ def import_actor(context: Context, actor: obe_reader.Actor) -> None:
 
     # Import skin mesh if present
     if len(actor.vertices) == 0:
+        bpy.ops.object.mode_set(mode="OBJECT")
         return
     skin_mesh_obj = import_mesh(
         context, actor_context, actor_name, actor.vertices, actor.prim_batches
     )
-    bpy.ops.object.mode_set(mode="OBJECT")
     skin_mesh_obj.parent = armature_obj
+    bpy.ops.object.mode_set(mode="OBJECT")
     modifier = skin_mesh_obj.modifiers.new("Armature", "ARMATURE")
     modifier.object = armature_obj
