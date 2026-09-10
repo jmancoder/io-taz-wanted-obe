@@ -17,6 +17,7 @@ class ActorContext:
     armature_obj: Object | None
     bone_map: dict[int, EditBone]
     object_map: dict[int, Object]
+    image_map: dict[int, Image | None]
 
 
 def fan_positions_to_triangles(
@@ -149,12 +150,16 @@ def import_mesh(
         mat_name = str(prim_batch.tex_0_crc)
         mat = bpy.data.materials.get(mat_name)
         if mat is None:
-            # Import image
-            image = import_image(
-                context,
-                actor_context,
-                prim_batch.tex_0_crc,
-            )
+            # Import image if necessary
+            if prim_batch.tex_0_crc in actor_context.image_map:
+                image = actor_context.image_map[prim_batch.tex_0_crc]
+            else:
+                image = import_image(
+                    context,
+                    actor_context,
+                    prim_batch.tex_0_crc,
+                )
+                actor_context.image_map[prim_batch.tex_0_crc] = image
 
             # Create material
             mat = bpy.data.materials.new(mat_name)
@@ -189,7 +194,7 @@ def import_mesh(
 
         # Add material to mesh
         if mat.name in mesh.materials:
-            mat_idx = mesh.materials.index(mat.name)
+            mat_idx = mesh.materials.find(mat.name)
         else:
             mesh.materials.append(mat)
             mat_idx = len(mesh.materials) - 1
@@ -306,7 +311,7 @@ def import_actor(context: Context, actor: obe_reader.Actor) -> None:
         manifest = None
 
     # Import nodes
-    actor_context = ActorContext(manifest, armature_obj, {}, {})
+    actor_context = ActorContext(manifest, armature_obj, {}, {}, {})
     for root_node in actor.root_nodes:
         import_node(context, actor_context, root_node)
 
