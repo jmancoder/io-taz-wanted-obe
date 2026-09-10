@@ -71,7 +71,7 @@ class ExtractPCArchives(Operator, ImportHelper):
         self.report(
             {"INFO"},
             f"Extracted {output_file_count} files from {len(self.files)} archive"
-            f"{"" if len(self.files) == 1 else "s"}",
+            f"{'' if len(self.files) == 1 else 's'}",
         )
 
         return {"FINISHED"}
@@ -102,7 +102,7 @@ class ImportBMP(Operator, ImportHelper):
 
         self.report(
             {"INFO"},
-            f"Imported {len(self.files)} image{"" if len(self.files) == 1 else "s"}",
+            f"Imported {len(self.files)} image{'' if len(self.files) == 1 else 's'}",
         )
         return {"FINISHED"}
 
@@ -135,7 +135,7 @@ class ImportOBE(Operator, ImportHelper):
 
         self.report(
             {"INFO"},
-            f"Imported {actor_count} actor{"" if actor_count == 1 else "s"}",
+            f"Imported {actor_count} actor{'' if actor_count == 1 else 's'}",
         )
         return {"FINISHED"}
 
