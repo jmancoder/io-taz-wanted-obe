@@ -14,8 +14,9 @@ NOTE: The add-on is currently only designed for the PC version, and has only bee
 3. Click _Extract PC Archives_ and select one or more .pc files from the Paks folder of your game installation.
 4. Click _Extract PC_ and wait for the operation to complete.
 ### Importing Assets
-1. Click the folder icon next to _Manifest Path_, then navigate to where you extracted the PC archives and select a manifest.json file from the package you want to import from.
-2. Click _Import OBE_, select an object file from the same package, and click _Import OBE_. Texture will load automatically.
+1. Click the folder icon to the right of _Manifest Path_, then navigate to the folder you extracted the PC archives to earlier.
+2. Select the manifest.json file from the package you want to import from and click _Accept_.
+2. Click _Import OBE_ in the sidebar, select the desired object file from the same package as the manifest, and click _Import OBE_. Textures will load automatically.
 
 ## TODO
 - Fix flipped UVs on certain meshes
