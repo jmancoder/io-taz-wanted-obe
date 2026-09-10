@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import math
 from pathlib import Path
 import json
 import logging
@@ -13,7 +14,7 @@ from . import obe_reader, texture_reader
 @dataclass
 class ActorContext:
     manifest: dict | None
-    armature_obj: Object
+    armature_obj: Object | None
     bone_map: dict[int, EditBone]
     object_map: dict[int, Object]
 
@@ -87,6 +88,7 @@ def import_mesh(
         context.collection.objects.link(empty_obj)
         return empty_obj
 
+    # Read triangles
     triangles: list[tuple[int, int, int]] = []
     poly_group_lengths: list[int] = []
     start_vert = 0
@@ -103,7 +105,7 @@ def import_mesh(
             # Convert primitive to triangles
             prim_positions = prim_vertices["position"]
             if prim.prim_type == 4:
-                # Triangle list
+                # Read triangle list
                 triangles.extend(
                     [
                         (start_vert + i, start_vert + i + 1, start_vert + i + 2)
@@ -111,7 +113,7 @@ def import_mesh(
                     ]
                 )
             elif prim.prim_type == 5:
-                # Triangle strip
+                # Read triangle strip
                 triangles.extend(
                     strip_positions_to_triangles(
                         prim_positions,
@@ -119,7 +121,7 @@ def import_mesh(
                     )
                 )
             elif prim.prim_type == 6:
-                # Triangle fan
+                # Read triangle fan
                 triangles.extend(
                     fan_positions_to_triangles(
                         prim_positions,
@@ -224,6 +226,7 @@ def import_node(
     node: obe_reader.Node,
 ) -> None:
     if type(node) is obe_reader.BoneNode:
+        # Import bone
         edit_bone = actor_context.armature_obj.data.edit_bones.new(str(node.crc))
         edit_bone.length = 25.0
         edit_bone.matrix = node.inverse_transform.inverted()
@@ -234,11 +237,16 @@ def import_node(
                 logging.warning("Parenting bones to non-bone nodes is unimplemented.")
         actor_context.bone_map[node.matrix_index] = edit_bone
     elif type(node) is obe_reader.MeshNode:
+        # Import mesh
         mesh_obj = import_mesh(
             context, actor_context, str(node.crc), node.vertices, node.prim_batches
         )
         if node.parent is None:
-            mesh_obj.parent = actor_context.armature_obj
+            if actor_context.armature_obj is not None:
+                mesh_obj.parent = actor_context.armature_obj
+            else:
+                mesh_obj.scale *= 0.01
+                mesh_obj.rotation_euler.x += math.radians(90)
         else:
             mesh_obj.parent = actor_context.object_map[node.parent.crc]
         actor_context.object_map[node.crc] = mesh_obj
@@ -249,14 +257,18 @@ def import_node(
 
 
 def import_actor(context: Context, actor: obe_reader.Actor) -> None:
-    # Import skin mesh
     actor_name = str(actor.crc)
-    armature = bpy.data.armatures.new(actor_name)
-    armature_obj = bpy.data.objects.new(actor_name, armature)
-    context.collection.objects.link(armature_obj)
-    armature_obj.scale *= 0.01
-    bpy.context.view_layer.objects.active = armature_obj
-    bpy.ops.object.mode_set(mode="EDIT")
+    is_skinned = actor.flags & 0x1 != 0
+    if is_skinned:
+        armature = bpy.data.armatures.new(actor_name)
+        armature_obj = bpy.data.objects.new(actor_name, armature)
+        context.collection.objects.link(armature_obj)
+        armature_obj.scale *= 0.01
+        armature_obj.rotation_euler.x += math.radians(90)
+        bpy.context.view_layer.objects.active = armature_obj
+        bpy.ops.object.mode_set(mode="EDIT")
+    else:
+        armature_obj = None
 
     # Load manifest file
     manifest_path = context.scene.taz_wanted_settings.manifest_path
@@ -275,7 +287,8 @@ def import_actor(context: Context, actor: obe_reader.Actor) -> None:
 
     # Import skin mesh if present
     if len(actor.vertices) == 0:
-        bpy.ops.object.mode_set(mode="OBJECT")
+        if is_skinned:
+            bpy.ops.object.mode_set(mode="OBJECT")
         return
     skin_mesh_obj = import_mesh(
         context, actor_context, actor_name, actor.vertices, actor.prim_batches

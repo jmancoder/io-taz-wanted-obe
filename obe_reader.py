@@ -100,6 +100,7 @@ class AnimSegment(NamedTuple):
 
 class Actor(NamedTuple):
     crc: int
+    flags: int
     vertices: npt.NDArray
     prim_batches: list[PrimBatch]
     root_nodes: list[Node]
@@ -393,7 +394,7 @@ def read_actor(bs: BinaryReader, crc: int) -> Actor:
     # Read anim segments
     bs.seek(anim_segment_off)
     anim_segments = [read_anim_segment(bs) for _ in range(anim_segment_count)]
-    return Actor(crc, vertices, prim_batches, root_nodes, anim_segments)
+    return Actor(crc, flags, vertices, prim_batches, root_nodes, anim_segments)
 
 
 def read_obe(input_path: Path) -> Actor | None:
