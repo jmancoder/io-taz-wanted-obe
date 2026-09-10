@@ -146,34 +146,59 @@ def import_mesh(
     # Import materials before mesh validation so polygons match triangles
     start_poly = 0
     for prim_batch, poly_group_len in zip(prim_batches, poly_group_lengths):
-        # Create material using first texture CRC
         mat_name = str(prim_batch.tex_0_crc)
         mat = bpy.data.materials.get(mat_name)
         if mat is None:
+            # Import image
+            image = import_image(
+                context,
+                actor_context,
+                prim_batch.tex_0_crc,
+            )
+
+            # Create material
             mat = bpy.data.materials.new(mat_name)
-            image = import_image(context, actor_context, prim_batch.tex_0_crc)
+            mat.use_nodes = True
+            bsdf = mat.node_tree.nodes.get("Principled BSDF")
             if image is not None:
-                # Add and link Image Texture node
-                mat.use_nodes = True
-                bsdf = mat.node_tree.nodes["Principled BSDF"]
-                image_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
-                image_node.image = image
+                # Use image texture
+                img_tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+                img_tex_node.location = (bsdf.location.x - 300, bsdf.location.y)
+                img_tex_node.image = image
                 mat.node_tree.links.new(
-                    bsdf.inputs["Base Color"], image_node.outputs["Color"]
+                    bsdf.inputs["Base Color"],
+                    img_tex_node.outputs["Color"],
                 )
                 mat.node_tree.links.new(
-                    bsdf.inputs["Alpha"], image_node.outputs["Alpha"]
+                    bsdf.inputs["Alpha"],
+                    img_tex_node.outputs["Alpha"],
+                )
+            else:
+                # Use vertex color attributes
+                color_attr_node = mat.node_tree.nodes.new(type="ShaderNodeVertexColor")
+                color_attr_node.location = (bsdf.location.x - 300, bsdf.location.y)
+                color_attr_node.layer_name = "vertex_color"
+                mat.node_tree.links.new(
+                    bsdf.inputs["Base Color"],
+                    color_attr_node.outputs["Color"],
+                )
+                mat.node_tree.links.new(
+                    bsdf.inputs["Alpha"],
+                    color_attr_node.outputs["Alpha"],
                 )
 
-        # Assign material indexes
-        if mat_name in mesh.materials:
-            mat_idx = mesh.materials.index(mat_name)
+        # Add material to mesh
+        if mat.name in mesh.materials:
+            mat_idx = mesh.materials.index(mat.name)
         else:
             mesh.materials.append(mat)
-            mat_idx = len(mesh.materials)
-        for i in range(poly_group_len):
-            mesh.polygons[start_poly + i].material_index = mat_idx
-        start_poly += poly_group_len
+            mat_idx = len(mesh.materials) - 1
+
+        # Assign material indexes
+        end_poly = start_poly + poly_group_len
+        for poly in mesh.polygons[start_poly:end_poly]:
+            poly.material_index = mat_idx
+        start_poly = end_poly
 
     mesh.validate()
     mesh.update()
