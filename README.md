@@ -25,3 +25,6 @@ NOTE: The add-on is currently only designed for the PC version, and has only bee
 - Import more texture formats
 - Test on more releases of Taz: Wanted
 - Add support for the Xbox version
+
+## Acknowledgements
+[MilkGames](https://github.com/MilkGames/) - Provided decompiled source code for Taz: Wanted and its game engine
