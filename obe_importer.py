@@ -217,7 +217,7 @@ def import_mesh(
         uv_layer = mesh.uv_layers.new(name=f"UV{i}")
         for loop in mesh.loops:
             uv = vertices[loop.vertex_index]["uvs"][i]
-            uv_layer.data[loop.index].uv = (uv[0], 1.0 - uv[1])
+            uv_layer.data[loop.index].uv = (1.0 - uv[0], 1.0 - uv[1])
 
     # Import vertex normals
     mesh.normals_split_custom_set_from_vertices(vertices["normal"])
