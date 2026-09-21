@@ -360,13 +360,13 @@ def read_actor(bs: BinaryReader, crc: int) -> Actor:
         ("diffuse", np.uint8, 4),
     ]
     match vertex_type:
-        case 0 | 8:
+        case 0 | 4:
             uv_count = 1
-        case 1 | 9:
+        case 1 | 5:
             uv_count = 2
-        case 2 | 10:
+        case 2 | 6:
             uv_count = 3
-        case 3 | 11:
+        case 3 | 7:
             uv_count = 4
         case _:
             uv_count = 0
