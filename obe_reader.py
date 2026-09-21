@@ -297,7 +297,7 @@ def read_node(
             node = Node(
                 crc, parent_node, [], position_track, scale_track, rotation_track
             )
-            logging.error(f"Unimplemented node type {node_type}")
+            logging.error("Unimplemented node type ID %d", node_type)
 
         # Read child nodes
         sibling_nodes.append(node)
@@ -408,4 +408,4 @@ def read_obe(input_path: Path) -> Actor | None:
     if res_type == 1:
         return read_actor(bs, crc)
     else:
-        logging.error(f"Unimplemented resource type {res_type}")
+        logging.error("Unimplemented resource type ID %d", res_type)

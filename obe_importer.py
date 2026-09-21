@@ -71,7 +71,7 @@ def import_image(
         image.pixels = texture.pixels
         return image
     except:
-        logging.exception(f"Failed to read texture {rel_path.stem} with CRC {crc}")
+        logging.exception("Failed to read texture %s with CRC %d", rel_path.stem, crc)
     return None
 
 
@@ -261,7 +261,7 @@ def import_node(
             if type(node.parent) is obe_reader.BoneNode:
                 edit_bone.parent = actor_context.bone_map[node.parent.matrix_index]
             else:
-                logging.warning("Parenting bones to non-bone nodes is unimplemented.")
+                logging.warning("Parenting bones to non-bone nodes is unimplemented")
         actor_context.bone_map[node.matrix_index] = edit_bone
     elif type(node) is obe_reader.MeshNode:
         # Import mesh
